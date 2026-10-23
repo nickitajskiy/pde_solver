@@ -15,7 +15,11 @@ class GuiTests(unittest.TestCase):
             root.update()
             with patch("main.messagebox.showerror") as errors:
                 root.heat_tab.calculate(compare=True)
+                root.heat_tab.frame.master.select(root.heat_tab.frame)
+                root.geometry("1000x720")
                 root.update()
+                self.assertTrue(root.heat_tab.layer.winfo_ismapped())
+                self.assertGreater(root.heat_tab.layer.winfo_height(), 40)
                 self.assertEqual(len(root.heat_tab.solutions), 3)
                 root.heat_tab.layer.set(0)
                 root.update()

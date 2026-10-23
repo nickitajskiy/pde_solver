@@ -5,6 +5,9 @@ from tkinter import messagebox, ttk
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
+from matplotlib import rcParams
+
+from math_labels import MathLabel, format_number
 
 from solvers import (
     HEAT_METHODS, calculate_max_error, classify_pde, exact_heat_solution,
@@ -12,10 +15,13 @@ from solvers import (
 )
 
 BACKGROUND = "#c0c0c0"
+rcParams["mathtext.fontset"] = "cm"
+rcParams["axes.formatter.use_mathtext"] = True
 
 
 def label(parent, text, **options):
-    return tk.Label(parent, text=text, background=BACKGROUND, foreground="black", **options)
+    widget = MathLabel if "$" in text else tk.Label
+    return widget(parent, text=text, background=BACKGROUND, foreground="black", **options)
 
 
 def button(parent, text, command):
@@ -28,7 +34,7 @@ def fields(parent, specifications):
     """Поля формы: (ключ, подпись, начальное значение)."""
     entries = {}
     for row, (key, title, default) in enumerate(specifications):
-        label(parent, title).grid(row=row, column=0, sticky="w", padx=4, pady=4)
+        label(parent, title, **({"size": 12} if "$" in title else {})).grid(row=row, column=0, sticky="w", padx=4, pady=4)
         entry = ttk.Entry(parent, width=13)
         entry.insert(0, str(default))
         entry.grid(row=row, column=1, padx=4, pady=4)
@@ -47,7 +53,7 @@ class PlotPanel:
     """Один встроенный Figure, переиспользуемый при каждом расчёте."""
 
     def __init__(self, parent):
-        self.figure = Figure(figsize=(6.5, 4.5), dpi=100, layout="constrained")
+        self.figure = Figure(figsize=(6.5, 3.2), dpi=100, layout="constrained")
         self.axes = self.figure.add_subplot()
         self.canvas = FigureCanvasTkAgg(self.figure, master=parent)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -75,17 +81,25 @@ class EvolutionTab:
         self.parameters = None
         self.frame = ttk.Frame(notebook)
         notebook.add(self.frame, text="СТРУНА" if wave else "ТЕПЛОПРОВОДНОСТЬ")
-        equation = ("u_tt = c²·u_xx;  u(0,t)=u(L,t)=0;  u(x,0)=A·sin(πx/L);  u_t(x,0)=0"
-                    if wave else "u_t = a·u_xx;  0 ≤ x ≤ 1;  u(0,t)=u(1,t)=0;  u(x,0)=sin(2πx)")
-        label(self.frame, equation, anchor="w").pack(fill="x", padx=12, pady=10)
+        header = ttk.Frame(self.frame)
+        header.pack(fill="x", padx=12, pady=(8, 4))
+        equation = (r"$\frac{\partial^2 u}{\partial t^2} = c^2\frac{\partial^2 u}{\partial x^2},"
+                    r"\qquad 0\leq x\leq L$" if wave else
+                    r"$\frac{\partial u}{\partial t} = a\frac{\partial^2 u}{\partial x^2},"
+                    r"\qquad 0\leq x\leq 1$")
+        label(header, equation, size=17).pack(anchor="w", pady=(0, 6))
+        conditions = (r"$u(0,t)=u(L,t)=0,\qquad u(x,0)=A\sin\!\left(\frac{\pi x}{L}\right),"
+                      r"\qquad \frac{\partial u}{\partial t}(x,0)=0$" if wave else
+                      r"$u(0,t)=u(1,t)=0,\qquad u(x,0)=\sin(2\pi x)$")
+        label(header, conditions).pack(anchor="w", pady=(0, 6))
         content = ttk.Frame(self.frame)
         content.pack(fill="both", expand=True, padx=10)
         controls = ttk.Frame(content)
         controls.pack(side="left", fill="y", padx=(0, 10))
-        specifications = [("c", "c — скорость", 1), ("length", "L — длина", 1),
-                          ("amplitude", "A — амплитуда", 1)] if wave else [("a", "a — коэффициент", 0.1)]
-        specifications += [("final_time", "T — время", 1 if wave else 0.2),
-                           ("h", "h — шаг x", 0.05), ("tau", "tau — шаг t", 0.01)]
+        specifications = [("c", r"$c$ — скорость", 1), ("length", r"$L$ — длина", 1),
+                          ("amplitude", r"$A$ — амплитуда", 1)] if wave else [("a", r"$a$ — коэффициент", 0.1)]
+        specifications += [("final_time", r"$T$ — время", 1 if wave else 0.2),
+                           ("h", r"$h$ — шаг по $x$", 0.05), ("tau", r"$\tau$ — шаг по $t$", 0.01)]
         self.entries = fields(controls, specifications)
         self.method = tk.StringVar(value=HEAT_METHODS[0])
         row = len(specifications)
@@ -100,15 +114,22 @@ class EvolutionTab:
                 row=row + 1, column=0, columnspan=2, pady=4)
             button(controls, "ИССЛЕДОВАТЬ ОШИБКУ", self.study).grid(
                 row=row + 2, column=0, columnspan=2, pady=4)
-        label(controls, "h делит длину, tau делит T.\nМинимум 4 интервала по x.\n"
-              + ("Устойчивость: c·tau/h ≤ 1" if wave else "Явная схема: a·tau/h² ≤ 0.5"),
-              justify="left").grid(row=row + 3, column=0, columnspan=2, pady=12, sticky="w")
+        label(controls, "Шаги должны делить интервалы.\nМинимум 4 интервала по координате.",
+              justify="left").grid(row=row + 3, column=0, columnspan=2, pady=(10, 4), sticky="w")
+        stability = (r"$\frac{c\tau}{h}\leq 1$" if wave else r"$r=\frac{a\tau}{h^2}\leq\frac{1}{2}$")
+        label(controls, "Устойчивость:" if wave else "Устойчивость явной схемы:").grid(
+            row=row + 4, column=0, columnspan=2, sticky="w")
+        label(controls, stability, size=16).grid(row=row + 5, column=0, columnspan=2, sticky="w", pady=6)
         plot_frame = ttk.Frame(content)
         plot_frame.pack(side="left", fill="both", expand=True)
         self.plot = PlotPanel(plot_frame)
-        self.status = label(self.frame, "Введите параметры и нажмите РАССЧИТАТЬ.", anchor="w", justify="left")
+        footer = ttk.Frame(self.frame)
+        footer.pack(side="bottom", fill="x", before=content)
+        self.ratio_label = label(footer, r"$\mathrm{CFL} = —$" if wave else r"$r = —$", anchor="w")
+        self.ratio_label.pack(fill="x", padx=12, pady=(4, 0))
+        self.status = label(footer, "Введите параметры и нажмите РАССЧИТАТЬ.", anchor="w", justify="left", wraplength=980)
         self.status.pack(fill="x", padx=12, pady=6)
-        self.layer = tk.Scale(self.frame, from_=0, to=1, orient="horizontal", resolution=1,
+        self.layer = tk.Scale(footer, from_=0, to=1, orient="horizontal", resolution=1,
                               command=self.draw_layer, background=BACKGROUND, foreground="black",
                               highlightthickness=0, label="Временной слой n", state="disabled")
         self.layer.pack(fill="x", padx=12, pady=(0, 8))
@@ -118,6 +139,7 @@ class EvolutionTab:
         self.parameters = None
         self.layer.configure(state="disabled")
         self.status.config(text="Результат: —")
+        self.ratio_label.set_formula(r"$\mathrm{CFL} = —$" if self.wave else r"$r = —$")
         self.plot.clear()
         self.plot.draw()
 
@@ -159,13 +181,14 @@ class EvolutionTab:
         errors = []
         for name, u in self.solutions:
             ax.plot(self.x, u[n], marker=".", markersize=4, label=name)
-            errors.append(f"{name}: {calculate_max_error(u[n], exact):.4g}")
-        ax.set(xlabel="x", ylabel="u(x,t)", title=f"t = {self.t[n]:.6g}; слой {n} / {len(self.t) - 1}")
+            errors.append(f"{name}: {format_number(calculate_max_error(u[n], exact))}")
+        ax.set(xlabel=r"$x$", ylabel=r"$u(x,t)$", title=rf"$t = {format_number(self.t[n], 6, latex=True)}$; слой {n} / {len(self.t) - 1}")
         ax.grid(True, alpha=0.3)
         ax.legend(loc="best")
-        ratio_name = "c·tau/h" if self.wave else "r = a·tau/h²"
-        self.status.config(text=f"{ratio_name} = {self.ratio:.6g}; сетка {len(self.t)} × {len(self.x)}\n"
-                                "Макс. ошибка по узлам выбранного слоя: " + "; ".join(errors))
+        ratio_formula = r"\mathrm{CFL}=\frac{c\tau}{h}" if self.wave else r"r=\frac{a\tau}{h^2}"
+        self.ratio_label.set_formula(rf"${ratio_formula}={format_number(self.ratio, 6, latex=True)}$")
+        self.status.config(text=f"Сетка: {len(self.t)} × {len(self.x)}. "
+                                "Макс. ошибка по узлам выбранного слоя:\n" + "; ".join(errors))
         self.plot.draw()
 
     def study(self):
@@ -178,17 +201,17 @@ class EvolutionTab:
         window.title("Исследование ошибки: " + self.method.get())
         window.geometry("760x510")
         window.configure(background=BACKGROUND)
-        label(window, "При каждом сгущении: h → h/2, tau → tau/4; r сохраняется. Ошибка при t=T.").pack(pady=8)
+        label(window, r"$h\;\to\;\frac{h}{2},\qquad \tau\;\to\;\frac{\tau}{4},\qquad r=\mathrm{const}$").pack(pady=8)
         table = ttk.Treeview(window, columns=("h", "tau", "r", "error"), show="headings", height=3)
-        for column, title in zip(("h", "tau", "r", "error"), ("h", "tau", "r", "Макс. ошибка")):
+        for column, title in zip(("h", "tau", "r", "error"), ("h", "τ", "r", "Макс. ошибка")):
             table.heading(column, text=title)
             table.column(column, width=150, anchor="center")
         for row in rows:
-            table.insert("", "end", values=[f"{value:.6g}" for value in row])
+            table.insert("", "end", values=[format_number(value, 6) for value in row])
         table.pack(fill="x", padx=12)
         panel = PlotPanel(window)
         panel.axes.loglog([r[0] for r in rows], [max(r[3], 1e-16) for r in rows], "o-")
-        panel.axes.set(xlabel="h", ylabel="Макс. ошибка при t=T", title="Совместное сгущение сетки")
+        panel.axes.set(xlabel=r"$h$", ylabel=r"$\max_i |u_i - U(x_i,T)|$", title="Ошибка при конечном времени")
         panel.axes.grid(True, which="both", alpha=0.3)
         panel.draw()
         # Сохраняем ссылку, пока открыто окно с Tk-canvas.
@@ -199,14 +222,14 @@ class LaplaceTab:
     def __init__(self, notebook):
         self.frame = ttk.Frame(notebook)
         notebook.add(self.frame, text="ЛАПЛАС")
-        label(self.frame, "u_xx + u_yy = 0; единичный квадрат; одинаковые шаги по x и y.").pack(pady=10)
+        label(self.frame, r"$\frac{\partial^2 u}{\partial x^2}+\frac{\partial^2 u}{\partial y^2}=0,\qquad (x,y)\in[0,1]^2$", size=17).pack(anchor="w", padx=12, pady=12)
         content = ttk.Frame(self.frame)
         content.pack(fill="both", expand=True, padx=10)
         controls = ttk.Frame(content)
         controls.pack(side="left", fill="y", padx=(0, 10))
         self.entries = fields(controls, [
-            ("h", "h — шаг сетки", 0.05), ("left", "Слева", 0), ("right", "Справа", 0),
-            ("bottom", "Снизу", 0), ("top", "Сверху", 100), ("epsilon", "ε — допуск невязки", "1e-6"),
+            ("h", r"$h$ — шаг сетки", 0.05), ("left", "Слева", 0), ("right", "Справа", 0),
+            ("bottom", "Снизу", 0), ("top", "Сверху", 100), ("epsilon", r"$\varepsilon$ — допуск невязки", "1e-6"),
             ("max_iterations", "Предел итераций", 10000),
         ])
         button(controls, "РАССЧИТАТЬ", self.calculate).grid(row=7, column=0, columnspan=2, pady=10)
@@ -215,6 +238,8 @@ class LaplaceTab:
         plot_frame = ttk.Frame(content)
         plot_frame.pack(side="left", fill="both", expand=True)
         self.plot = PlotPanel(plot_frame)
+        self.residual_label = label(self.frame, r"$\max_{i,j}|\Delta_h u_{i,j}| = —$", anchor="w")
+        self.residual_label.pack(fill="x", padx=12, pady=(4, 0))
         self.status = label(self.frame, "Результат: —", anchor="w")
         self.status.pack(fill="x", padx=12, pady=10)
 
@@ -222,6 +247,7 @@ class LaplaceTab:
         self.plot.clear()
         self.plot.draw()
         self.status.config(text="Результат: —")
+        self.residual_label.set_formula(r"$\max_{i,j}|\Delta_h u_{i,j}| = —$")
         try:
             p = read_numbers(self.entries)
             limit = p["max_iterations"]
@@ -233,26 +259,31 @@ class LaplaceTab:
             messagebox.showerror("Ошибка расчёта", str(error), parent=self.frame)
             return
         image = self.plot.axes.pcolormesh(x, y, u, shading="auto", cmap="inferno")
-        self.plot.colorbar = self.plot.figure.colorbar(image, ax=self.plot.axes, label="Температура u")
-        self.plot.axes.set(xlabel="x", ylabel="y", title="Стационарное распределение температуры", aspect="equal")
-        self.status.config(text=f"Сетка {len(y)} × {len(x)}; итераций: {iterations}; "
-                                f"макс. |Δₕu| = {residual:.4g} ≤ {p['epsilon']:g}")
+        self.plot.colorbar = self.plot.figure.colorbar(image, ax=self.plot.axes, label=r"Температура $u$")
+        self.plot.axes.set(xlabel=r"$x$", ylabel=r"$y$", title="Стационарное распределение температуры", aspect="equal")
+        self.status.config(text=f"Сетка {len(y)} × {len(x)}; итераций: {iterations}")
+        self.residual_label.set_formula(
+            rf"$\max_{{i,j}}|\Delta_h u_{{i,j}}|={format_number(residual, latex=True)}"
+            rf"\leq\varepsilon={format_number(p['epsilon'], latex=True)}$")
         self.plot.draw()
 
 
 def classification_tab(notebook):
     frame = ttk.Frame(notebook)
     notebook.add(frame, text="КЛАССИФИКАЦИЯ")
-    label(frame, "A·∂²u/∂x² + B·∂²u/∂x∂y + C·∂²u/∂y² + … = 0",
-          font=("TkDefaultFont", 12, "bold")).pack(anchor="w", padx=16, pady=16)
+    label(frame, r"$A\frac{\partial^2 u}{\partial x^2}+B\frac{\partial^2 u}{\partial x\,\partial y}"
+          r"+C\frac{\partial^2 u}{\partial y^2}+\cdots=0$", size=18).pack(anchor="w", padx=16, pady=16)
     form = ttk.Frame(frame)
     form.pack(anchor="w", padx=16)
-    entries = fields(form, [("coef_a", "A:", 1), ("coef_b", "B:", 0), ("coef_c", "C:", 1)])
-    result = label(frame, "Δ = —\nТип: —\nПример: —", justify="left", anchor="w")
+    entries = fields(form, [("coef_a", "$A$:", 1), ("coef_b", "$B$:", 0), ("coef_c", "$C$:", 1)])
+    delta_result = label(frame, r"$\Delta = —$", anchor="w", size=16)
+    delta_result.pack(fill="x", padx=20, pady=(16, 0))
+    result = label(frame, "Тип: —\nПример: —", justify="left", anchor="w")
     result.pack(fill="x", padx=20, pady=20)
 
     def classify():
-        result.config(text="Δ = —\nТип: —\nПример: —")
+        delta_result.set_formula(r"$\Delta = —$")
+        result.config(text="Тип: —\nПример: —")
         try:
             discriminant, kind = classify_pde(**read_numbers(entries))
         except ValueError as error:
@@ -260,19 +291,24 @@ def classification_tab(notebook):
             return
         examples = {"ЭЛЛИПТИЧЕСКИЙ": "уравнение Лапласа", "ПАРАБОЛИЧЕСКИЙ": "уравнение теплопроводности",
                     "ГИПЕРБОЛИЧЕСКИЙ": "волновое уравнение"}
-        result.config(text=f"Δ = {discriminant:.6g}\nТип: {kind}\nПример: {examples[kind]}")
+        delta_result.set_formula(rf"$\Delta = {format_number(discriminant, 6, latex=True)}$")
+        result.config(text=f"Тип: {kind}\nПример: {examples[kind]}")
 
     button(form, "ОПРЕДЕЛИТЬ ТИП", classify).grid(row=3, column=0, columnspan=2, pady=10)
-    label(frame, "Δ = B² − 4AC:  Δ < 0 — эллиптический;  Δ = 0 — параболический;  Δ > 0 — гиперболический.\n"
-          "Классификация локальная, по старшим производным; смешанный член записан с B, без множителя 2.",
-          justify="left").pack(anchor="w", padx=20, pady=8)
+    label(frame, r"$\Delta=B^2-4AC$", size=17).pack(anchor="w", padx=20, pady=8)
+    for condition, kind in ((r"\Delta<0", "эллиптический"), (r"\Delta=0", "параболический"),
+                            (r"\Delta>0", "гиперболический")):
+        label(frame, f"${condition}$ — {kind}").pack(anchor="w", padx=20, pady=4)
+    label(frame, "Классификация по старшим производным. Смешанный член записан с коэффициентом B.",
+          justify="left").pack(anchor="w", padx=20, pady=12)
+
 
 
 def create_app():
     root = tk.Tk()
     root.title("Численное решение УЧП")
-    root.geometry("1120x720")
-    root.minsize(1000, 650)
+    root.geometry("1120x760")
+    root.minsize(1000, 720)
     root.configure(background=BACKGROUND)
     style = ttk.Style(root)
     style.theme_use("clam")
